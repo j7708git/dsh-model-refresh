@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-refresh",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "DSH llm-pi-ai 模型清單智慧更新工具（Nous Portal + OpenRouter）— core + CLI + 常駐 plugin",
   "type": "module",
   "engines": {

@@ -26,13 +26,14 @@ npm run verify:real-host             # 真實 cordis 主機深檢（改動 plugi
 ## 與 DSH 的關係
 
 - 只寫 `llm-pi-ai.providers.openrouter.models` 與 `llm-pi-ai.providers.nous-api.models` 兩個受管清單；其他命名空間、註解、格式由 `yaml` 文件模型保留。
+- **思考能力（v0.2.4+）**：受管條目會把目錄宣告的 `reasoning.supported_efforts`（如 `max/high/low`）寫成 `reasoningEfforts: {低位: 低位, ...}`。DSH 的 `llm-pi-ai` adapter 依此解析 `reasoning: true`，Web UI 就能為該模型選擇思考強度——對 `nous-api` route 尤其重要，因為 pi-ai 沒有內建 nous 目錄，缺這個欄位時每個模型都被判成不支援思考（只能選 off）。目錄未宣告任何 effort 的模型不會寫入該欄位，避免虛報能力。
 - 首次 `apply` 時，兩條 route 原有的使用者條目全部以 `imported` 保留（驗收 §12-5：僅新增、不刪除）。
 - 寫入後 DSH 下一次模型請求即熱生效，無需重啟；DSH 自身的 `assertServiceable` 驗證器是第二道防線（壞區段會保留最後良好值）。
 - API 金鑰不在本工具職責內（沿用 `apiKeyEnv` 參考）。
 
 ## 常駐模式（M2 plugin）
 
-> **當前狀態（2026-09-06）**：v0.2.2 — 修復版通過真實 cordis 主機驗證，並經獨立審查補上四個次要修補（watcher disposer、reschedule 防護、原子寫入改非同步重試、rollback 警告）。**待重啟 `dsh web` 載入**。
+> **當前狀態（2026-09-06）**：v0.2.4 — 常駐 plugin 每輪寫入 `reasoningEfforts` 思考能力欄位（修復 nous-api 無法選思考強度）。**需重啟 `dsh web` 載入新版 plugin**，重啟後第一輪自動補寫既有條目。
 
 `dsh web` 重啟後，本套件以 cordis plugin 形式常駐：
 

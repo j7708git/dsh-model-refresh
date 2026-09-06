@@ -60,6 +60,7 @@ export function buildPlan({ cfg, pools, current, state, agentDefault, nowMs }) {
           contextWindow: existing.contextWindow ?? gen.contextWindow,
           maxTokens: existing.maxTokens ?? gen.maxTokens,
           input: existing.input ?? gen.input,
+          reasoningEfforts: existing.reasoningEfforts ?? gen.reasoningEfforts,
           _rule: "pin",
         };
       } else {
@@ -200,9 +201,40 @@ export function entryToYaml(entry, rule, namePrefix = "") {
   const out = { id: entry.id, name: namePrefix + cleanName(entry) };
   if (entry.contextWindow) out.contextWindow = entry.contextWindow;
   if (entry.maxTokens) out.maxTokens = entry.maxTokens;
+  const re = reasoningEffortsOf(entry);
+  if (re) out.reasoningEfforts = re;
   const mods = entry.inputModalities ?? ["text"];
   if (mods.some((m) => m !== "text")) out.input = ["text", "image"]; // pi-ai vocabulary: text/image
   return out;
+}
+
+/**
+ * Map a catalog's `reasoning.supported_efforts` (e.g. ["max","high","low"]) to
+ * the pi-ai settings vocabulary: a dict of level → wire value, where a value
+ * identical to the level is the convention pi-ai's reasoning_effort dispatch
+ * sends on the wire. Returns undefined when the catalog declares no thinking
+ * support — the entry then inherits (or lacks) reasoning from the installed
+ * catalog base, which is the correct fallback for a route like nous-api that
+ * has no builtin provider catalog at all.
+ *
+ * "off" is only added when the catalog explicitly advertises a way to disable
+ * thinking ("none"/"off" in supported_efforts) — writing it otherwise would
+ * claim a toggling capability the vendor never declared.
+ */
+const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+function reasoningEffortsOf(entry) {
+  const supported = Array.isArray(entry.reasoningEfforts) ? entry.reasoningEfforts : [];
+  if (!supported.length) return undefined;
+  const dict = {};
+  for (const lvl of supported) {
+    if (typeof lvl !== "string" || lvl === "") continue;
+    if (lvl === "none" || lvl === "off") { dict.off = "none"; continue; }
+    if (!THINKING_LEVELS.has(lvl)) continue;
+    dict[lvl] = lvl;
+  }
+  // No usable levels (only "none" listed) → not a selectable-strength model.
+  if (!Object.keys(dict).some((k) => k !== "off")) return undefined;
+  return dict;
 }
 
 function cleanName(entry) {

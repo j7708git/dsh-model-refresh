@@ -107,3 +107,33 @@ test("pool failure → route retained untouched", () => {
   assert.ok(!("nous-api" in plan.routes), "no plan entry written for the failed provider");
   assert.ok(report.warnings.some((w) => w.includes("抓取失敗")));
 });
+
+test("entries carry reasoningEfforts from catalog supported_efforts (fix: nous thinking strength)", () => {
+  // Entry with declared thinking levels → dict lands in the planned row.
+  const pools = { openrouter: fakePool("openrouter"), nous: fakePool("nous") };
+  const { plan } = buildPlan({ cfg, pools, current: emptyCurrent, state: null, agentDefault: null, nowMs: NOW });
+  // helpers.entry defaults to ["high","medium","low"] — maps to the same dict.
+  const glm = plan.routes.openrouter.entries.find((e) => e.id === "z-ai/glm-5.3-flash");
+  assert.deepEqual(glm.reasoningEfforts, { low: "low", medium: "medium", high: "high" });
+  const deepseek = plan.routes.openrouter.entries.find((e) => e.id === "~deepseek/deepseek-v4-flash-latest");
+  assert.deepEqual(deepseek.reasoningEfforts, { low: "low", medium: "medium", high: "high" });
+});
+
+test("reasoningEfforts omitted when catalog declares none (no false capability claim)", () => {
+  const pools = {
+    openrouter: [
+      entry({ id: "deepseek/deepseek-v4-flash", reasoningEfforts: ["xhigh", "high"] }),
+      entry({ id: "no-thinking/model", reasoningEfforts: [] }),
+      entry({ id: "none-only/model", reasoningEfforts: ["none"] }),
+    ],
+    nous: [],
+  };
+  const current = { openrouter: { models: [], exists: false }, "nous-api": { models: [], exists: false } };
+  const { plan } = buildPlan({ cfg, pools, current, state: null, agentDefault: null, nowMs: NOW });
+  const rows = plan.routes.openrouter.entries;
+  const has = (id) => rows.find((e) => e.id === id);
+  const flash = has("deepseek/deepseek-v4-flash");
+  assert.deepEqual(flash.reasoningEfforts, { xhigh: "xhigh", high: "high" }, "declared levels written");
+  assert.equal(has("no-thinking/model").reasoningEfforts, undefined, "no declared efforts → field omitted");
+  assert.equal(has("none-only/model").reasoningEfforts, undefined, "'none' alone is not a strength level → omitted");
+});

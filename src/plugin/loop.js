@@ -8,7 +8,7 @@ import { buildPlan } from "../core/planner.js";
 import { loadState, saveState, loadPools, savePools } from "../core/state.js";
 
 export const LLM_NS = "llm-pi-ai";
-const MANAGED_FIELDS = ["id", "name", "contextWindow", "maxTokens", "input"];
+const MANAGED_FIELDS = ["id", "name", "contextWindow", "maxTokens", "input", "reasoningEfforts"];
 
 /** Derive the planner's `current` view from the resolved llm-pi-ai namespace. */
 export function currentFromProviders(providers) {
@@ -29,7 +29,7 @@ function sameEntry(cur, planned) {
   for (const k of MANAGED_FIELDS) {
     const b = planned[k];
     if (b === undefined) continue; // planned asserts nothing on this field
-    if (Array.isArray(b)) {
+    if (Array.isArray(b) || (b && typeof b === "object")) {
       if (JSON.stringify(cur[k] ?? null) !== JSON.stringify(b)) return false;
     } else if (cur[k] !== b) return false;
   }
