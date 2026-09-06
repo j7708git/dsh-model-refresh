@@ -33,7 +33,7 @@ npm run verify:real-host             # 真實 cordis 主機深檢（改動 plugi
 
 ## 常駐模式（M2 plugin）
 
-> **當前狀態（2026-09-06）**：v0.2.4 — 常駐 plugin 每輪寫入 `reasoningEfforts` 思考能力欄位（修復 nous-api 無法選思考強度）。**需重啟 `dsh web` 載入新版 plugin**，重啟後第一輪自動補寫既有條目。
+> **當前狀態（2026-09-06）**：v0.3.0 — M4-A 宿主 HTTP 面（status/refresh route）＋ M4-B Web 設定頁卡片已落地。**需重啟 `dsh web` 載入**，重啟後：設定 → Plugins → **Plugin configuration** 應出現「模型清單自動刷新」卡片（啟停 / 週期 / 啟動延遲 / 立即刷新按鈕）。
 
 `dsh web` 重啟後，本套件以 cordis plugin 形式常駐：
 
@@ -60,7 +60,15 @@ POST /model-refresh/api/refresh   # 立即刷新一次（與定時輪共用同�
 
 - 手動刷新**繞過 `enabled` 閘門**（force）——plugin 停用時仍可手動跑一輪，這也是「停用自動、保留手動」用法的一部分。
 - 無差異時冪等；最壞情況（兩家目錄全抓不到且無快取）是本輪不寫入並回傳警示，不會寫壞清單。
-- Web 設定頁卡片（設定 → Plugins → Plugin configuration）為 M4-B，規劃見 [`M4-Web設定頁規劃.md`](./M4-Web設定頁規劃.md)。
+
+### Web 設定頁卡片（M4-B）
+
+設定 → Plugins → **Plugin configuration** 分頁的「模型清單自動刷新」卡片（`src/client.js`，lazy-CJS factory 格式的瀏覽器半部，免構建鏈）：
+
+- **三個 prefs**：`enabled`（啟停）、`intervalHours`（週期）、`initialDelaySeconds`（啟動延遲）——本地暫存、按「儲存」一次性 revision-fenced 寫入，熱生效不需重啟；被覆寫欄位有徽章與「重設」（unset 回部署預設）。
+- **立即刷新一次**：按鈕直打 M4-A 的 refresh route，與定時輪共用單飛旗標；忙線回 busy 提示，結果（新增/移除/警示）直接回填卡片。
+- **狀態列**：上次執行 / 上次套用時間與兩條 route 的條目數（來自 state.json / last-plan.json）。
+- 瀏覽器半部的宣告在 `package.json` 的 `dsh.client`（`platform: "web"`，inject ui-slots/ui-settings）；改 `src/client.js` 後重啟 `dsh web` 生效（官方 shell 的 client-plugin HMR 只在 `pnpm run dev:web` 進行中對本 checkout 的套件熱載）。
 
 解除安裝：`dsh plugin --profile web remove dsh-model-refresh` 並從 profile `package.json` 的 `bundles` 移除 `"dsh-model-refresh"`（官方 remove 已知不會自動清 bundles 條目）。
 

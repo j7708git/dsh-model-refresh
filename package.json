@@ -1,7 +1,7 @@
 {
   "name": "dsh-model-refresh",
-  "version": "0.2.4",
-  "description": "DSH llm-pi-ai 模型清單智慧更新工具（Nous Portal + OpenRouter）— core + CLI + 常駐 plugin",
+  "version": "0.3.0",
+  "description": "DSH llm-pi-ai 模型清單智慧更新工具（Nous Portal + OpenRouter）— core + CLI + 常駐 plugin + Web 設定頁卡片",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -16,11 +16,19 @@
     "./plugin": "./src/plugin/index.js",
     "./plugin/loop": "./src/plugin/loop.js",
     "./core": "./src/core/planner.js",
+    "./client": "./src/client.js",
     "./package.json": "./package.json"
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
     }
   },
   "scripts": {
