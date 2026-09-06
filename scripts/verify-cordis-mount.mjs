@@ -45,11 +45,29 @@ class FakeSettings extends Service {
   }
 }
 
+// M4-A probe: mirror dsh-host-webserver's route table so ctx.inject(["webServer"])
+// resolves and the HTTP surface can be exercised in-process.
+class FakeWebServer extends Service {
+  constructor(ctx) {
+    super(ctx, "webServer");
+    this.routes = new Map();
+  }
+  register(route) {
+    this.routes.set(route.path, route);
+    console.log(`[probe] webServer.register ${route.kind} ${route.path}`);
+    return () => {
+      this.routes.delete(route.path);
+      console.log(`[probe] webServer route disposed: ${route.path}`);
+    };
+  }
+}
+
 const Loader = (await import("file:///C:/Users/denny/AppData/Roaming/npm/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/cordis-plugin-loader/lib/index.js")).default;
 
 const ctx = new Context();
 ctx.baseUrl = pathToFileURL("C:\\Users\\denny\\.dsh\\profiles\\web").href + "/";
 if (ctx.logger) ctx.logger.level = "debug";
+ctx.webRuntime = { trustedHosts: [] }; // webserver plugin's plain property (loopback-only posture)
 
 // time every network call the tick makes
 const realFetch = globalThis.fetch;
@@ -81,11 +99,13 @@ FakeSettings.prototype.register = function (ns, schema) {
 };
 
 new FakeSettings(ctx);
+new FakeWebServer(ctx);
 await ctx.plugin(Loader);
 console.log("mounting dsh-model-refresh by bare name via real loader...");
 await ctx.loader.create({ name: "dsh-model-refresh" });
 console.log("mounted ✓");
 
+// ---- wait for the first scheduled tick ---------------------------------------
 const deadline = Date.now() + 300_000;
 while (Date.now() < deadline) {
   if (existsSync(join(stateDir, "CHANGES.md"))) break;
@@ -97,5 +117,30 @@ if (fs.existsSync(join(stateDir, "state.json"))) {
   console.log("TICK RAN ✓ lastRunAt:", s.lastRunAt);
 } else {
   console.log("NO TICK OUTPUT within 90s ✗ — state dir contents:", fs.readdirSync(stateDir));
+}
+
+// ---- M4-A: exercise the HTTP surface through the registered route ------------
+const route = ctx.webServer?.routes?.get?.("/model-refresh/api");
+if (!route) {
+  console.log("HTTP ROUTE MISSING ✗ — webServer service never resolved or route not registered");
+} else {
+  const drive = async (method, url, host = "127.0.0.1:3080") => {
+    const res = { statusCode: 0, body: "", writeHead(c) { this.statusCode = c; }, end(b) { this.body = b ?? ""; } };
+    await route.handler({ method, url, headers: { host } }, res);
+    return { status: res.statusCode, body: res.body ? JSON.parse(res.body) : null };
+  };
+  const st = await drive("GET", "/model-refresh/api/status");
+  console.log(`[http] GET status → ${st.status} ${JSON.stringify(st.body).slice(0, 160)}`);
+  if (st.status === 200 && st.body?.ok) console.log("HTTP STATUS ✓");
+  else console.log("HTTP STATUS ✗");
+
+  const rf = await drive("POST", "/model-refresh/api/refresh");
+  console.log(`[http] POST refresh → ${rf.status} ${JSON.stringify(rf.body).slice(0, 200)}`);
+  if (rf.status === 200 && rf.body?.ok) console.log("HTTP REFRESH ✓");
+  else console.log("HTTP REFRESH ✗");
+
+  const evil = await drive("GET", "/model-refresh/api/status", "evil.example.com");
+  if (evil.status === 403) console.log("HTTP FENCE ✓ (foreign host 403)");
+  else console.log(`HTTP FENCE ✗ (${evil.status})`);
 }
 process.exit(0);

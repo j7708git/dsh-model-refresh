@@ -1,9 +1,19 @@
 # dsh-model-refresh M4 規劃：Web 設定頁「啟停 + 手動刷新 + 參數調整」入口
 
-- 版本：v1.0（規劃稿，未實作）
+- 版本：v1.1（規劃稿 + 實施記錄）
 - 日期：2026-09-06
 - 前提：不破壞既有 cordis 注入鏈、不影響 M1/M2 已落地功能、變更最小化
 - 證據基準：本機 DSH 安裝（`C:\Users\denny\AppData\Roaming\npm\node_modules\@deepseek-ai\dsh\`）與 web profile 內兩個第三方插件（dsh-better-sidebar、dsh-smart-approval）實際代碼，路徑見附錄 A
+
+> **實施狀態**：M4-A ✅ 已完成（見 §9 分期表與下方「與原規劃的差異」）；M4-B 進行中。
+
+### 與原規劃的差異（M4-A 落地時確定）
+
+| # | 原規劃 | 實際落地 | 原因 |
+|---|---|---|---|
+| 1 | fence 以 `ctx.webRuntime.trustedHosts` 在 route 包裝層檢查 | fence 改為 `createApiHandler` 的注入參數，handler 內**任何 dispatch 之前**執行 | handler 純函式化，fence 行為可脫離 socket 單測（http.test.js 直接驅動） |
+| 2 | status 回傳 `fetchErrors[]` / `warnings[]` | status 只回 prefs＋lastRunAt/lastAppliedAt＋route 條目數；warnings/fetchErrors 僅存在於**當輪** refresh 回應 | warnings 未持久化在 state.json，M4-A 承諾不動 loop.js/state.js；補持久化屬 M4-C |
+| 3 | — | 發現既有輕微抖動：連續兩輪對同一 route「同集合異順序」重寫（免費池 tie-break 受目錄 API 返回順序影響） | 非 M4 引入（M3 觀察期行為），記錄於開發文件，暫不修 |
 
 ---
 
@@ -263,8 +273,8 @@ POST /model-refresh/api/refresh
 
 | 期 | 內容 | 驗收 |
 |---|---|---|
-| **M4-A（宿主）** | `src/plugin/http.js` + `index.js` tick 回傳值 + status/refresh route + 單測 + verify 腳本擴充 | §7-1/2/4 綠；PowerShell `Invoke-RestMethod` 可手動打兩條 route（重啟後） |
-| **M4-B（UI）** | `dsh.client` 宣告 + `src/client.js` 卡片 + `build:client` | §7-3 全綠：卡片可見、三 prefs 可改可 reset、刷新按鈕全鏈回饋 |
+| **M4-A（宿主）✅ 2026-09-06** | `src/plugin/http.js` + `index.js` tick 回傳值 + status/refresh route + 單測 + verify 腳本擴充 | §7-1/2/4 綠（單測 48/48；真機深檢 HTTP STATUS/REFRESH/FENCE ✓）；重啟後線上可 `Invoke-RestMethod` 打通兩條 route |
+| **M4-B（UI）** | `dsh.client` 宣告 + `src/client.js` 卡片 + `build:client`（若走免構建的手寫 factory 則免） | §7-3 全綠：卡片可見、三 prefs 可改可 reset、刷新按鈕全鏈回饋 |
 | **M4-C（選配）** | §4.2 v2 prefs（需先做 cfg 每輪重讀重構）、locale 字典、變更通知 badge | 另立驗收 |
 
 A、B 可同分支開發但**分兩次重啟驗證**——先讓宿主 route 上線（即使卡片未就緒，手動刷新已可用），再疊 UI，符合本專案「每一步都有獨立憑據」的事故教訓。

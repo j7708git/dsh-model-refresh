@@ -68,18 +68,30 @@ function makeSettings() {
   };
 }
 
-function makeCtx(settingsService) {
+function makeWebServer() {
+  const routes = [];
+  return {
+    routes,
+    register(route) {
+      routes.push(route);
+      return () => { const i = routes.indexOf(route); if (i >= 0) routes.splice(i, 1); };
+    },
+  };
+}
+
+function makeCtx(settingsService, webServerService = null) {
   const logs = { info: [], warn: [], error: [] };
   const disposers = [];
   return {
     logs,
     disposers,
+    webRuntime: { trustedHosts: [] },
     // Mirror the REAL cordis 4 surface: Context has NO `dispose` method — the
     // effect disposer is what a plugin callback RETURNS. An earlier fake
     // invented ctx.dispose and let a real TypeError slip to production.
     inject(deps, cb) {
-      if (!deps.includes("settings")) return;
-      disposers.push(cb({ settings: settingsService }));
+      if (deps.includes("settings")) disposers.push(cb({ settings: settingsService }));
+      else if (deps.includes("webServer") && webServerService) disposers.push(cb({ webServer: webServerService }));
     },
     logger: {
       info: (m) => logs.info.push(String(m)),
@@ -138,4 +150,47 @@ test("plugin tick is conflict-tolerant and crash-safe", async () => {
   await waitUntil(async () => settings.providers.openrouter.models.length >= 5, 15_000, "apply after conflict retry");
   assert.deepEqual(ctx.logs.error, []);
   for (const d of ctx.disposers) d();
+});
+
+test("M4-A: webServer routes registered, manual refresh runs the same tick, dispose removes routes", async () => {
+  process.env.DSH_MODEL_REFRESH_STATE_DIR = mkdtempSync(join(tmpdir(), "mr-mount3-"));
+  const settings = makeSettings();
+  const webServer = makeWebServer();
+  const ctx = makeCtx(settings, webServer);
+
+  apply(ctx, { fetcherImpl: fakeFetcher });
+
+  const route = webServer.routes.find((r) => r.path === "/model-refresh/api");
+  assert.ok(route, "prefix route registered on the webServer seam");
+  assert.equal(route.kind, "prefix");
+  assert.ok(ctx.logs.info.some((l) => l.includes("HTTP routes 已註冊")), "registration logged");
+
+  // drive the handler directly (no socket): manual refresh shares the loop tick
+  const handler = route.handler;
+  const post = async () => {
+    const res = { statusCode: undefined, headers: null, body: undefined, writeHead(c, h) { this.statusCode = c; this.headers = h; }, end(b) { this.body = b; } };
+    await handler({ method: "POST", url: "/model-refresh/api/refresh", headers: { host: "127.0.0.1:3080" } }, res);
+    return JSON.parse(res.body);
+  };
+  const body = await post();
+  assert.equal(body.ok, true, `manual refresh ok (got ${JSON.stringify(body)})`);
+  assert.equal(body.result.applied, true, "manual refresh applied through settings.mutate");
+  await waitUntil(async () => existsSync(join(process.env.DSH_MODEL_REFRESH_STATE_DIR, "state.json")), 5_000, "manual-refresh state");
+
+  // GET status returns prefs + persisted facts
+  const res2 = { statusCode: undefined, body: undefined, writeHead() {}, end(b) { this.body = b; } };
+  await handler({ method: "GET", url: "/model-refresh/api/status", headers: { host: "localhost" } }, res2);
+  const statusBody = JSON.parse(res2.body);
+  assert.equal(statusBody.ok, true);
+  assert.equal(statusBody.status.prefs.enabled, true);
+  assert.ok(statusBody.status.lastRunAt, "lastRunAt surfaced from state.json");
+
+  // untrusted host is fenced
+  const res3 = { statusCode: undefined, body: undefined, writeHead() {}, end(b) { this.body = b; } };
+  await handler({ method: "GET", url: "/model-refresh/api/status", headers: { host: "evil.example.com" } }, res3);
+  assert.equal(JSON.parse(res3.body).error.code, "forbidden");
+
+  // dispose removes the route (cordis 4 teardown = returned disposer)
+  for (const d of ctx.disposers) d();
+  assert.equal(webServer.routes.length, 0, "routes disposed with the plugin");
 });

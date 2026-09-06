@@ -9,7 +9,9 @@
  */
 import z from "schemastery";
 import { loadConfig } from "../core/config.js";
+import { loadState } from "../core/state.js";
 import { runOnce } from "./loop.js";
+import { registerModelRefreshRoutes, readLastPlan } from "./http.js";
 
 export const name = "dsh-model-refresh";
 
@@ -52,6 +54,11 @@ export function apply(ctx, config) {
   const warn = (m) => out("warn", m);
   const fail = (m) => out("error", m);
 
+  // Shared controls box for the HTTP surface: the settings inject callback fills
+  // it once the loop exists; the webServer routes read it per-request (so route
+  // registration order never matters, and a dormant loop answers 503).
+  const controls = { current: null };
+
   // The settings seam is optional: a deployment without dsh-settings-file simply
   // never activates the refresh loop (mirror of the adapter's dormant posture).
   ctx.inject(["settings"], (sctx) => {
@@ -78,11 +85,14 @@ export function apply(ctx, config) {
       mutate: (ns, ops, expectedRevision) => settings.mutate(ns, ops, expectedRevision),
     };
 
-    async function tick() {
-      if (running) return;
+    async function tick({ force = false } = {}) {
+      if (running) return { ok: false, busy: true };
       let prefs;
-      try { prefs = scope.get(); } catch (err) { fail(`prefs 讀取失敗：${err?.stack ?? err}`); return; }
-      if (!prefs.enabled) return;
+      try { prefs = scope.get(); } catch (err) {
+        fail(`prefs 讀取失敗：${err?.stack ?? err}`);
+        return { ok: false, error: `prefs 讀取失敗：${err?.message ?? err}` };
+      }
+      if (!prefs.enabled && !force) return { ok: false, disabled: true };
       running = true;
       try {
         const { applied, writes, report } = await runOnce({
@@ -94,12 +104,40 @@ export function apply(ctx, config) {
         if (applied) say(`已套用 ${writes} 個 route 更新（新增 ${report.added.length}、移除 ${report.removed.length}）`);
         else if (report.warnings.length) warn(`本輪未套用 — ${report.warnings.join("; ")}`);
         else say("無需更新");
+        return {
+          ok: true,
+          applied,
+          writes,
+          added: report.added.length,
+          removed: report.removed.length,
+          warnings: report.warnings,
+        };
       } catch (err) {
         fail(`刷新週期失敗：${err?.stack ?? err}`);
+        return { ok: false, error: err?.message ?? String(err) };
       } finally {
         running = false;
       }
     }
+
+    /** Snapshot for the Web card: prefs + last persisted run facts. */
+    function getStatus() {
+      let prefs = null;
+      try { prefs = scope.get(); } catch { /* namespace gone — card shows unavailable */ }
+      const st = loadState(cfgBase.stateDir);
+      const plan = readLastPlan(cfgBase.stateDir);
+      return {
+        prefs: prefs ? { enabled: prefs.enabled, intervalHours: prefs.intervalHours, initialDelaySeconds: prefs.initialDelaySeconds } : null,
+        lastRunAt: st?.lastRunAt ?? null,
+        lastAppliedAt: st?.lastAppliedAt ?? null,
+        planGeneratedAt: plan?.generatedAt ?? null,
+        routes: plan?.routes
+          ? Object.fromEntries(Object.entries(plan.routes).map(([k, r]) => [k, r.entries.length]))
+          : null,
+      };
+    }
+
+    controls.current = { triggerTick: tick, getStatus };
 
     function reschedule() {
       let prefs;
@@ -131,6 +169,10 @@ export function apply(ctx, config) {
       if (unwatch) unwatch();
       if (initialTimer) clearTimeout(initialTimer);
       if (interval) clearInterval(interval);
+      controls.current = null; // HTTP surface now answers 503 until re-mount
     };
   });
+
+  // Web settings card surface (M4-A): dormant when no webServer service exists.
+  registerModelRefreshRoutes(ctx, controls, say);
 }

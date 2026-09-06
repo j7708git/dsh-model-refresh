@@ -48,6 +48,20 @@ npm run verify:real-host             # 真實 cordis 主機深檢（改動 plugi
 - **與手動編輯共存**：你在 Settings 頁/選單裡加進 `llm-pi-ai.providers.*.models` 的條目會被收編為 `imported` 保留；手動**刪除**的受管條目會被記住（抑制清單，不再自動加回）；pin 被刪除則自動恢復並警告。
 - 狀態與報告同 CLI：`~/.dsh/model-refresh/`（`state.json`、`CHANGES.md`、`backups/`）。
 
+### HTTP API（M4-A — Web 設定頁的宿主半部）
+
+常駐 plugin 會在 web host 上註冊兩條 route（信任圍欄保護：loopback / trusted hosts 之外一律 403），供 Web 設定頁卡片（M4-B）與進階手動操作使用：
+
+```
+GET  /model-refresh/api/status    # prefs + 上次執行時間 + 各 route 條目數
+POST /model-refresh/api/refresh   # 立即刷新一次（與定時輪共用同一 tick：單飛旗標 +
+                                  # settings.mutate 樂觀鎖；忙線回 {code:"busy"}）
+```
+
+- 手動刷新**繞過 `enabled` 閘門**（force）——plugin 停用時仍可手動跑一輪，這也是「停用自動、保留手動」用法的一部分。
+- 無差異時冪等；最壞情況（兩家目錄全抓不到且無快取）是本輪不寫入並回傳警示，不會寫壞清單。
+- Web 設定頁卡片（設定 → Plugins → Plugin configuration）為 M4-B，規劃見 [`M4-Web設定頁規劃.md`](./M4-Web設定頁規劃.md)。
+
 解除安裝：`dsh plugin --profile web remove dsh-model-refresh` 並從 profile `package.json` 的 `bundles` 移除 `"dsh-model-refresh"`（官方 remove 已知不會自動清 bundles 條目）。
 
 ## 安裝後必驗（教訓規程）：三層驗證鏈
@@ -63,9 +77,11 @@ npm run verify:real-host             # 真實 cordis 主機深檢（改動 plugi
 2. **掛載＋心跳層（真實主機深檢）** — 程序內起真 cordis（Context＋官方 loader，baseUrl=profile 目錄）掛載本插件並等第一輪 tick 完整跑完：
    ```powershell
    node scripts/verify-cordis-mount.mjs
-   # 期望依序出現：[probe] register → 「已載入」→ mounted ✓ → [fetch] 200×3 → mutate → 已套用/無需更新 → TICK RAN ✓
+   # 期望依序出現：[probe] register → 「已載入」→ mounted ✓ → webServer.register →
+   # [fetch] 200×3 → mutate → TICK RAN ✓ → HTTP STATUS ✓ / HTTP REFRESH ✓ / HTTP FENCE ✓
    ```
 3. **線上心跳層** — 重啟 `dsh web` 後超過 `initialDelaySeconds`（預設 90s），`~/.dsh/model-refresh/state.json` 的 mtime 必須刷新、host 日誌出現 `model-refresh:` 行。**只驗 dump-config 有掛載不算通過。**
+4. **UI 層（M4-B 後）** — 設定 → Plugins → Plugin configuration 出現本插件卡片；改 prefs 儲存後 host 日誌出現重排程跡象；「立即刷新」按鈕全鏈回饋（host log + `state.json` mtime + 按鈕結果行）；快速連按兩下第二次應回 busy。
 
 > 單測層防呆同步固化：`test/plugin-mount.test.js` 以「鏡像真實 cordis 介面」的假 ctx（沒有 `dispose` 方法、斷言 inject 回調回傳 disposer）跑完整掛載→tick。插件代碼兩條鐵律：inject 回調期間**捕獲服務實例**（回調返回後 `sctx` 即失效）、teardown 用**回傳 disposer**（cordis 4 無 `ctx.dispose()`）。
 
