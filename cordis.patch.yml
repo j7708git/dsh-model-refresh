@@ -1,0 +1,10 @@
+# dsh-model-refresh bundle patch
+#
+# `dsh plugin --profile web add dsh-model-refresh`（或本地 `add <path>`）看到
+# package.json 的 dsh.bundle.patch 宣告後，會把本 bundle 插入 profile 堆疊；
+# 開機時本 patch 把 plugin 掛進 tree。調整行為請改 settings.yaml 的
+# `dsh-model-refresh:` 區段（enabled / intervalHours / initialDelaySeconds），
+# 不必動這裡。
+- insert:
+    - id: model-refresh
+      name: 'dsh-model-refresh'

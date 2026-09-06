@@ -1,0 +1,30 @@
+# dsh-model-refresh 使用者設定（全部可省略；省略即用內建預設）
+# 預設值見 src/core/config.js。此處欄位會深層合併覆蓋預設。
+
+# settingsPath: C:\Users\denny\.dsh\settings.yaml   # 預設 <DSH_HOME 或 ~/.dsh>/settings.yaml
+# stateDir:     ~/.dsh/model-refresh                # 狀態/報告/備份/last-good 目錄
+
+free:
+  maxPerProvider: 10    # 2026-09-05 已確認
+  minContext: 262144
+
+candidates:
+  min: 3
+  target: 4
+  max: 5
+  maxPricePerM: 1000000 # 規則甲：第一檔 ≤ $1.00/M（單位：美元×1e6）
+  qualifyFactor: 0.95   # 能力門檻 = pins 中位數 × 0.95
+  hysteresis:
+    swapFactor: 1.1
+    behindNeeded: 2
+    cooldownDays: 7
+
+routeCap: 24
+protectAgentDefault: true
+
+# pins 若要增減，改這裡（byProvider 依序嘗試，先命中先用）：
+# pins:
+#   - key: glm-5.3-flash
+#     byProvider:
+#       openrouter: ["z-ai/glm-5.3-flash"]
+#       nous: ["z-ai/glm-5.3-flash"]

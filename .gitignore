@@ -1,0 +1,5 @@
+node_modules/
+.npm-cache/
+state/
+*.log
+test/fixtures/*.json
