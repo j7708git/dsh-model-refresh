@@ -263,6 +263,11 @@ window.__ModuleLoader__.load({
     }
 
     exports.apply = apply;
+    // Hard service deps: the card binds the settings namespace and registers
+    // the settings.plugin.item slot. Undeclared ctx access is rejected by the
+    // cordis Guard ("cannot get property ... without inject") — see official
+    // dsh-client-ui-settings-plugins, which declares the same pair.
+    exports.inject = ["slots", "settingsScope"];
     return module.exports;
   },
 });

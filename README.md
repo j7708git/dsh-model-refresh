@@ -89,7 +89,18 @@ POST /model-refresh/api/refresh   # 立即刷新一次（與定時輪共用同�
    # [fetch] 200×3 → mutate → TICK RAN ✓ → HTTP STATUS ✓ / HTTP REFRESH ✓ / HTTP FENCE ✓
    ```
 3. **線上心跳層** — 重啟 `dsh web` 後超過 `initialDelaySeconds`（預設 90s），`~/.dsh/model-refresh/state.json` 的 mtime 必須刷新、host 日誌出現 `model-refresh:` 行。**只驗 dump-config 有掛載不算通過。**
-4. **UI 層（M4-B 後）** — 設定 → Plugins → Plugin configuration 出現本插件卡片；改 prefs 儲存後 host 日誌出現重排程跡象；「立即刷新」按鈕全鏈回饋（host log + `state.json` mtime + 按鈕結果行）；快速連按兩下第二次應回 busy。
+4. **UI 層（M4-B 後）** — 設定 → Plugins → Plugin configuration 出現本插件卡片；改 prefs 儲存後 host 日誌出現重排程跡象；「立即刷新」按鈕全鏈回饋（host log + `state.json` mtime + 按鈕結果行）；快速連按兩下第二次應回 busy。**實機探測法**（v0.3.1 事故後固化）：headless Edge + CDP 可完全替代肉眼——
+   ```powershell
+   # 起探測瀏覽器（乾淨設定檔、CDP 埠 9333）
+   & "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --headless=new --disable-gpu `
+     --remote-debugging-port=9333 --user-data-dir="$env:TEMP\edge-dsh" --no-first-run --disable-extensions about:blank
+   # Node 原生 WebSocket 連 CDP：GET /json/list 取 page target →
+   #   Page.addScriptToEvaluateOnNewDocument 掛 window.__errs/__console 陷阱 →
+   #   Page.navigate 到 token URL → 輪詢 document.body.innerText
+   # 判讀：出現「Failed to load plugins」= loader entry 被拒（錯誤全文在 console 陷阱裡）；
+   #       body 含「模型清單自動刷新」= 卡片渲染成功
+   ```
+   瀏覽器 console 的錯誤全文是唯一可靠的診斷來源；host 端正常 ≠ client 半部正常（v0.3.1：host 掛載、心跳、HTTP 全綠，client 仍被 Guard 拒絕）。
 
 > 單測層防呆同步固化：`test/plugin-mount.test.js` 以「鏡像真實 cordis 介面」的假 ctx（沒有 `dispose` 方法、斷言 inject 回調回傳 disposer）跑完整掛載→tick。插件代碼兩條鐵律：inject 回調期間**捕獲服務實例**（回調返回後 `sctx` 即失效）、teardown 用**回傳 disposer**（cordis 4 無 `ctx.dispose()`）。
 
